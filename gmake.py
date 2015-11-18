@@ -88,9 +88,10 @@ class Makefile(object):
               "ldflags(string)"
               "incpaths(list)\n"
               "out(string)       the dir of object files\n"
-              "complie(string)   default g++\n"
+              "compliePrefix(string)\n"
               "headers(list)     must called before srcs(list)\n"
               "srcs(list)\n"
+              "finalCmds(list)   call before target"
               "target(string)    string is None if build as shared lib\n"
               "printf()\n")
 
@@ -105,6 +106,7 @@ class Makefile(object):
         self.__ldflag = ''
         self.__CXX = 'CXX = g++\n'
         self.__AR = 'AR = ar\n'
+        self.__finalcmds = []
 
     def debug(self, enable):
         if enable:
@@ -127,7 +129,13 @@ class Makefile(object):
         return self
 
     def rdynamic(self):
-        self.__ldflag += ' -rdynamic'
+        # self.__ldflag += ' -rdynamic'
+        self.__cxxflag += ' -rdynamic'
+        return self
+
+    def addDefs(self, defs):
+        for d in defs:
+            self.__cxxflag += ' -D' + d
         return self
 
     def ldflags(self, flags):
@@ -144,8 +152,9 @@ class Makefile(object):
         self.__outdir = outdir
         return self
 
-    def complie(self, name):
-        self.__CXX = 'CXX = ' + name + '\n'
+    def compliePrefix(self, name):
+        self.__CXX = 'CXX = ' + name + 'g++\n'
+        self.__AR = 'AR = ' + name + 'ar\n'
         return self
 
     def srcs(self, srcdirs):
@@ -192,33 +201,52 @@ class Makefile(object):
         if not boutlib:
             self.__tg += name + ': ' + self.__outdir + \
                         ' $(objs)\n\t$(CXX) -o ' + name + ' $(objs)' + \
-                        self.__ldflag + '\n\n'
-
-            return self
-
-        if bstaticlib:
-            self.__tg += name + ': ' + self.__outdir + \
-                        ' $(objs)\n\t$(AR) crs ' + name + \
-                        ' $(objs)' + self.__ldflag + '\n\n'
+                        self.__ldflag + '\n'
         else:
-            self.__tg += name + ': ' + self.__outdir + \
-                        ' $(objs)\n\t$(CXX) -fPIC -shared -o ' + name + \
-                        ' $(objs)' + self.__ldflag + '\n\n'
+            if bstaticlib:
+                self.__tg += name + ': ' + self.__outdir + \
+                            ' $(objs)\n\t$(AR) crs ' + name + \
+                            ' $(objs)' + self.__ldflag + '\n'
+            else:
+                self.__cxxflag += ' -fPIC'
+                self.__tg += name + ': ' + self.__outdir + \
+                            ' $(objs)\n\t$(CXX) -shared -o ' + name + \
+                            ' $(objs)' + self.__ldflag + '\n'
+
+        for cmd in self.__finalcmds:
+            self.__tg += '\t' + cmd + '\n'
+
+        self.__tg += '\n'
 
         return self
 
     def printf(self):
-        xx = ''
+        print(self.__getOutput())
+
+        return self
+
+    def write(self, filename):
+        with open(filename, 'w') as fd:
+            fd.write(self.__getOutput())
+
+        return self
+
+    def finalCmds(self, cmds):
+        self.__finalcmds = cmds
+        return self
+
+    def __getOutput(self):
+        output = ''
         for src in self.__srcList:
             obj = os.path.join(self.__outdir, os.path.basename(src) + '.o')
-            xx += obj + ': ' + ' '.join(bfs(self.__graph, src)) + \
+            output += obj + ': ' + ' '.join(bfs(self.__graph, src)) + \
                 '\n' + '\t$(CXX) $(CXXFLAGS) -c ' + src + ' -o ' + obj + '\n\n'
 
-        cout = self.__objs + self.__CXX + self.__AR + self.__cxxflag + '\n\n' \
-             + self.__tg + self.__outdir + ':\n\tmkdir ' + self.__outdir + \
-               '\n\n' + xx
+        output = self.__objs + '\n' + self.__CXX + self.__AR + self.__cxxflag \
+             + '\n\n' + self.__tg + self.__outdir + ':\n\tmkdir ' \
+             + self.__outdir + '\n\n' + output
 
-        print(cout)
+        return output
 
     def __findheaders(self, src, count=2500):
         fd = open(src, 'r')  # TODO: encoding
@@ -227,14 +255,27 @@ class Makefile(object):
         headers = re.findall('(?<=")[\w/]+\.h', code)
         # print src, headers
         for header in headers:
-            for hdir in self.__headerdirs:
-                nheader = os.path.join(hdir, header)
-                if (nheader in self.__headList):
-                    self.__graph.addedge(src, nheader)
+            if header in self.__headList:
+                self.__graph.addedge(src, header)
+            else:
+                for hdir in self.__headerdirs:
+                    nheader = os.path.join(hdir, header)
+
+                    if (nheader in self.__headList):
+                        self.__graph.addedge(src, nheader)
 
 
-if __name__ == "__main__":
-    Makefile().debug(False).cxx11().sharedlib('magsdk')\
-            .libs(['pthread', 'ikkcpr', 'magh264'])\
-            .out('outlib').headers([''])\
-            .srcs(['']).target().printf()
+# mf().out('outarm').headers(['include']).srcs(['src']).incpaths(['include'])\
+#     .compliePrefix('/opt/armgcc47/bin/arm-cortex_a9-linux-gnueabi-')\
+#     .debug(False).cxx11().addDefs(['IKK_FILTER_LEVEL=1']) \
+#     .finalCmds(['sudo cp libarmikkcpr.a /usr/local/lib/'])  \
+#     .target('libarmikkcpr.a', True, True) \
+#     .write("arm")
+
+
+# mf().out('outarm').headers(['include']).srcs(['src']).incpaths(['include'])\
+#     .compliePrefix('/opt/armgcc47/bin/arm-cortex_a9-linux-gnueabi-')\
+#     .debug(False).cxx11().addDefs(['IKK_FILTER_LEVEL=1']) \
+#     .finalCmds(['sudo cp libarmikkcpr.a /usr/local/lib/'])  \
+#     .target('libarmikkcpr.a', True, True) \
+#     .write("arm")
