@@ -107,6 +107,8 @@ class Makefile(object):
         self.__CXX = 'CXX = g++\n'
         self.__AR = 'AR = ar\n'
         self.__finalcmds = []
+        self.__hasasm = False
+        self.__asmList = []
 
     def debug(self, enable):
         if enable:
@@ -157,25 +159,39 @@ class Makefile(object):
         self.__AR = 'AR = ' + name + 'ar\n'
         return self
 
-    def srcs(self, srcdirs):
-        if not self.__headList:
-            raise "no headList"
-
+    @staticmethod
+    def __getfiles(srcdirs, filetype):
+        filelist = []
         for srcdir in srcdirs:
             regex = ''
             if srcdir:
-                regex = srcdir + '/*.cpp'
+                regex = srcdir + '/*.' + filetype
             else:
-                regex = '*.cpp'
-            self.__srcList += [filename for filename in glob(regex)]
+                regex = '/*.' + filetype
 
+            filelist += [f for f in glob(regex)]
+
+        return filelist
+
+    def srcs(self, srcdirs, hasasm=False):
+        if not self.__headList:
+            raise "no headList"
+
+        self.__srcList = self.__getfiles(srcdirs, 'cpp')
         for src in self.__srcList:
+            self.__objs += os.path.join(self.__outdir, os.path.basename(src)
+                                        + '.o') + ' '
+
+        self.__asmList = self.__getfiles(srcdirs, 's')
+        self.__asmList += self.__getfiles(srcdirs, 'S')
+        for src in self.__asmList:
             self.__objs += os.path.join(self.__outdir, os.path.basename(src)
                                         + '.o') + ' '
 
         self.__objs += '\n'
         map(self.__graph.addnode, self.__srcList)
         map(self.__findheaders, self.__srcList)
+        self.__hasasm = hasasm
         return self
 
     def headers(self, headerdirs):
@@ -237,6 +253,11 @@ class Makefile(object):
 
     def __getOutput(self):
         output = ''
+        for asm in self.__asmList:
+            obj = os.path.join(self.__outdir, os.path.basename(asm) + '.o')
+            output += obj + ': ' + asm + '\n' + '\t$(CXX) -c ' + asm + \
+                ' -o ' + obj + '\n\n'
+
         for src in self.__srcList:
             obj = os.path.join(self.__outdir, os.path.basename(src) + '.o')
             output += obj + ': ' + ' '.join(bfs(self.__graph, src)) + \
